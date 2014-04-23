@@ -6,184 +6,106 @@
 #include <sys/types.h>
 #include <sys/wait.h>  /* waitpid */
 #include <signal.h>
+#include <errno.h>
 
-#define OPT_NEED 1
-#define OPT_UNKNW 2
-#define FILE_NOT_OPEN 3
-#define HASH_ERROR 4
-#define PTHREAD_ERROR 5
-#define MEM_ERROR 6
-#define FSTAT 7
-#define FORK_ERROR 8
-#define WAIT_ERROR 9
+#define BUF_SIZE 255
+#define MAX_ARGC 64
+#define STR_SH_LINE "sh-> "
 
-#define BUFF_SIZE 255
+int flag_wait = 1;
 
-int flag_wait = 0;
-pid_t wait_process = 0;
-
-void signal_handler(int sig)
+void sig_handler(int sig)
 {
-	printf("f = %d, pid = %d\n", flag_wait, wait_process);
-	if (flag_wait && wait_process)
-		kill(wait_process, SIGKILL);
-	
+	write(1,"\n", 1);
+	write(1, STR_SH_LINE, sizeof(STR_SH_LINE));
+	return;
 }
-
 
 int main(int argc, char* argv[])
 {	
-	struct sigaction act;
-	act.sa_handler = signal_handler;
-	sigemptyset(&act.sa_mask);
-	act.sa_flags = 0;
-	sigaction(SIGINT, &act, 0);
-	
-	char buffer[BUFF_SIZE];
+	(void)signal(SIGINT, sig_handler);
+	char buffer[BUF_SIZE];
 	int len;
+	write(1, "Hello! Welcome to mini shell\n", 29);
 	while(1) {
-		memset(buffer, '\0', BUFF_SIZE);
-		terminal_hello();
-		len = read(0, buffer, BUFF_SIZE);
+		memset(buffer, '\0', BUF_SIZE);
+		write(1, STR_SH_LINE, sizeof(STR_SH_LINE));
+		len = read(0, buffer, BUF_SIZE);
 		buffer[len-1] = '\0';
-		if (is_complete(buffer))
-			return EXIT_SUCCESS;
-		if (is_ps(buffer)) {
-			ps();
+		if(len == 1)
 			continue;
-		}
+		if (is_exit(buffer))
+			_exit(EXIT_SUCCESS);
 		command(buffer);
 	}
-	return EXIT_SUCCESS;
+	_exit(EXIT_SUCCESS);
 }
-
-int terminal_hello(void)
-{
-	write(1, "my-terminal->", 13);
-	return EXIT_SUCCESS;
-}
-
-
 
 int command(char *buffer, int len)
 {
-	char i;
-	char *argv[BUFF_SIZE];
+	char *argv[MAX_ARGC];
 	char argc;
-	char *pch;
-	int status;
+	
+	char last_simbol = buffer[strlen(buffer)-1];
+	if (last_simbol == '&') {
+		buffer[strlen(buffer)-1] = '\0';
+		flag_wait = 0;
+	}
 	
 	/* start parse */
-	i = 0;
-	pch = strtok(buffer, " ");
+	char i = 0;
+	char *pch = strtok(buffer, " ");
 	while(pch) {
-		argv[i++] = pch;
+		argv[i] = (char *) malloc (sizeof(char) * strlen(pch));
+		if (!argv[i])
+			error_exit(errno);
+		strcpy(argv[i++], pch);
 		pch = strtok(NULL, " ");
 	}
 	argc = i;
 	argv[argc] = 0;
 	/*  end parse  */
-	
-	if (is_nowait_process(argv[argc-1])) {
-		argv[argc-1] = 0;
-		flag_wait = 0;
-	}
-	else
-		flag_wait = 1;
-	
-	
+
+	sigset_t sigmask;
+	if ((sigemptyset(&sigmask) == -1) || (sigaddset(&sigmask, SIGINT) == -1))
+			error_exit(errno);
+	if (sigprocmask(SIG_BLOCK, &sigmask, NULL) == -1)
+			error_exit(errno);
+
 	pid_t pid;
 	pid = fork();
 
 	switch(pid) {
 		case -1: 
-			error_exit(FORK_ERROR);
+			error_exit(errno);
 		case 0:
+			if(flag_wait)
+				if (sigprocmask(SIG_UNBLOCK, &sigmask, NULL) == -1)
+					error_exit(errno);
+			printf("Procces is running. PID = [%d]\n\n", getpid());
 			execvp(argv[0], argv);
+			error_exit(errno);
 		default:
-			//printf("wait = %d\n", flag_wait);
 			if (flag_wait) {
-				wait_process = pid;
-				//(void) signal(SIGINT, kill_child);
+				int status;
 				(void) waitpid(pid, &status, 0);
 			}
+			sleep(1);
+			break;
 	}
 	return EXIT_SUCCESS;
 }
 
-
-
-int is_complete(char *string)
+int is_exit(char *string)
 {
 	if (strlen(string) != 4)
 		return 0;
 	return !memcmp(string, "exit", 4);
 }
 
-int is_ps(char *string)
-{
-	if (strlen(string) != 5)
-		return 0;
-	return !memcmp(string, "my-ps", 5);
-}
-
-int is_nowait_process(char *string)
-{
-	if (strlen(string) != 1)
-		return 0;
-	return !memcmp(string, "&", 1);
-}
-
-int ps(void)
-{
-	pid_t pid;
-	char ppid[10];
-	pid = fork();
-	switch(pid) {
-		case -1: 
-			error_exit(FORK_ERROR);
-		case 0:
-			sprintf(ppid, "%d", getppid());
-			execlp("ps", "ps", "-f", "--ppid", ppid, NULL);
-		default:
-			(void)waitpid(pid, NULL, 0);
-	}
-	return 0;
-}
-
 int error_exit(int id_error)
 {
-	char text_error[80];
-	int i;
-	for(i=0; i<80; i++)
-		text_error[i]='\0';
-	switch (id_error) {
-		case OPT_NEED:
-			strcpy(text_error, "Error! Need a value of option!\n");
-			break;
-		case OPT_UNKNW:
-			strcpy(text_error, "Error! Unknown an option!\n");
-			break;
-		case FILE_NOT_OPEN:
-			strcpy(text_error, "Error! File doesn`t opened!\n");
-			break;
-		case HASH_ERROR:
-			strcpy(text_error, "Error! Hash doesn`t calculate!\n");
-			break;
-		case PTHREAD_ERROR:
-			strcpy(text_error, "Error! Pthread doesn`t calculate!\n");
-			break;
-		case MEM_ERROR:
-			strcpy(text_error, "Error! Something with memory... hm...\n");
-			break;
-		case FSTAT:
-			strcpy(text_error, "Error! fstat() returned negative value!\n");
-			break;
-		case WAIT_ERROR:
-			strcpy(text_error, "Error! Waitpid function is failes\n");
-			break;	
-			
-	}
-	write(0, text_error, 80);
+	perror("Error! Comment: ");
+	perror(strerror(id_error));
 	exit(id_error);
 }
