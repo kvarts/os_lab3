@@ -14,19 +14,25 @@
 
 int flag_wait = 1;
 
-void sig_handler(int sig)
+void int_handler(int sig)
 {
 	write(1,"\n", 1);
 	write(1, STR_SH_LINE, sizeof(STR_SH_LINE));
 	return;
 }
 
+void chld_handler(int sig)
+{
+	
+}
+
 int main(int argc, char* argv[])
 {	
-	(void)signal(SIGINT, sig_handler);
+	(void)signal(SIGINT, int_handler);
+	(void)signal(SIGCHLD, chld_handler);
 	char buffer[BUF_SIZE];
 	int len;
-	write(1, "Hello! Welcome to mini shell\n", 29);
+	write(1, "Hello! Welcome to mini shell. Enter \"q\" to exit\n", 48);
 	while(1) {
 		memset(buffer, '\0', BUF_SIZE);
 		write(1, STR_SH_LINE, sizeof(STR_SH_LINE));
@@ -82,7 +88,7 @@ int command(char *buffer, int len)
 			if(flag_wait)
 				if (sigprocmask(SIG_UNBLOCK, &sigmask, NULL) == -1)
 					error_exit(errno);
-			printf("Procces is running. PID = [%d]\n\n", getpid());
+			printf("\tProcces forked.\n\tNew PID = [%d]\n", getpid());
 			execvp(argv[0], argv);
 			error_exit(errno);
 		default:
@@ -98,9 +104,9 @@ int command(char *buffer, int len)
 
 int is_exit(char *string)
 {
-	if (strlen(string) != 4)
+	if (strlen(string) != 1)
 		return 0;
-	return !memcmp(string, "exit", 4);
+	return !memcmp(string, "q", 1);
 }
 
 int error_exit(int id_error)
