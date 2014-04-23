@@ -23,7 +23,20 @@ void int_handler(int sig)
 
 void chld_handler(int sig)
 {
-	
+	int status;
+	pid_t w = wait(&status);
+	if (w == -1)
+		return;
+	printf("Procces by PID = [%d] ", w);
+	if (WIFEXITED(status)) 
+		printf("exited, status=%d\n", WEXITSTATUS(status));
+	else if (WIFSIGNALED(status))
+		printf("killed by signal %d\n", WTERMSIG(status));
+	else if (WIFSTOPPED(status))
+		printf("stopped by signal %d\n", WSTOPSIG(status));
+	else if (WIFCONTINUED(status))
+		printf("continued\n");
+	write(1, STR_SH_LINE, sizeof(STR_SH_LINE));
 }
 
 int main(int argc, char* argv[])
